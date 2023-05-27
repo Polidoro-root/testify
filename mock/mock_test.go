@@ -1933,16 +1933,49 @@ func (tc *tCustomLogger) FailNow() {}
 
 func TestLoggingAssertExpectations(t *testing.T) {
 	m := new(timer)
-	m.On("GetTime", 0).Return("")
+	calls := m.On("GetTime", 0).Return("").Times(5)
+	repeatability := calls.Repeatability
+
 	tcl := &tCustomLogger{t, []string{}, []string{}}
 
-	AssertExpectationsForObjects(tcl, m, new(TestExampleImplementation))
+	for i := 0; i < repeatability; i++ {
+		AssertExpectationsForObjects(tcl, m, new(TestExampleImplementation))
+	}
 
-	require.Equal(t, 1, len(tcl.errs))
-	assert.Regexp(t, regexp.MustCompile("(?s)FAIL: 0 out of 1 expectation\\(s\\) were met.*The code you are testing needs to make 1 more call\\(s\\).*"), tcl.errs[0])
-	require.Equal(t, 2, len(tcl.logs))
+	m.GetTime(0)
+
+	errLogsPerMock := len(tcl.errs) + 1
+
+	expectedLogs := repeatability * errLogsPerMock
+
+	require.Equal(t, repeatability, len(tcl.errs))
+	assert.Regexp(t, regexp.MustCompile(fmt.Sprintf("(?s)FAIL: %d out of %d expectation\\(s\\) were met.*The code you are testing needs to make %d more call\\(s\\).*", len(m.Calls), repeatability, repeatability-len(m.Calls))), tcl.errs[0])
+	require.Equal(t, expectedLogs, len(tcl.logs))
 	assert.Regexp(t, regexp.MustCompile("(?s)FAIL:\tGetTime\\(int\\).*"), tcl.logs[0])
-	require.Equal(t, "Expectations didn't match for Mock: *mock.timer", tcl.logs[1])
+	require.Equal(t, "Expectations didn't match for Mock: *mock.timer", tcl.logs[repeatability])
+}
+
+func TestGithub(t *testing.T) {
+	m := new(timer)
+
+	m.On("GetTime", 0).Return("").Times(5)
+
+	tcl := &tCustomLogger{t, []string{}, []string{}}
+
+	for i := range m.ExpectedCalls {
+		fmt.Printf("INDEX: %d", i)
+		AssertExpectationsForObjects(tcl, m, new(TestExampleImplementation))
+	}
+
+	errLogsPerMock := len(tcl.errs) + 1
+
+	expectedLogs := len(m.ExpectedCalls) * errLogsPerMock
+
+	require.Equal(t, len(m.ExpectedCalls), len(tcl.errs))
+	assert.Regexp(t, regexp.MustCompile(fmt.Sprintf("(?s)FAIL: %d out of %d expectation\\(s\\) were met.*The code you are testing needs to make %d more call\\(s\\).*", len(m.Calls), len(m.ExpectedCalls), len(m.ExpectedCalls)-len(m.Calls))), tcl.errs[0])
+	require.Equal(t, expectedLogs, len(tcl.logs))
+	assert.Regexp(t, regexp.MustCompile("(?s)FAIL:\tGetTime\\(int\\).*"), tcl.logs[0])
+	require.Equal(t, "Expectations didn't match for Mock: *mock.timer", tcl.logs[len(m.ExpectedCalls)])
 }
 
 func TestAfterTotalWaitTimeWhileExecution(t *testing.T) {
